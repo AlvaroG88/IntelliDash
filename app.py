@@ -4,11 +4,13 @@ import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
+import altair as alt
 
+from datetime import datetime
 from services.weather import geocode_city, get_weather
 from services.wiki import search_pages, get_summary
 from services.news import search_hn
-from services.forex import convert as fx_convert, timeseries as fx_timeseries
+from services.forex import convert_currency, get_timeseries, get_common_currencies
 from intelligence.nlp import rake_keywords, textrank_summarize, tiny_sentiment
 
 st.set_page_config(page_title="IntelliDash", page_icon="🧠", layout="wide")
@@ -116,50 +118,117 @@ def section_weather(query: str):
     if not g:
         st.info("Enter a city name to fetch weather.")
         return
+
     st.caption(f"Location resolved: {g.get('name')}, {g.get('country_code')} (lat {g.get('latitude')}, lon {g.get('longitude')})")
     w = get_weather(g["latitude"], g["longitude"])
     if not w:
         st.warning("Could not load weather.")
         return
+
+    # Datos actuales
     cur = w.get("current_weather", {})
-    st.metric("Temperature (°C)", cur.get("temperature"))
+    temp_c = cur.get("temperature")
+    temp_f = temp_c * 9/5 + 32 if temp_c is not None else None
+
+    # Datos diarios
+    daily = w.get("daily", {})
+    uv = None
+    sunrise = None
+    sunset = None
+    if daily:
+        uv_list = daily.get("uv_index_max")
+        sr_list = daily.get("sunrise")
+        ss_list = daily.get("sunset")
+        if uv_list:
+            uv = uv_list[0]
+        if sr_list:
+            sunrise = sr_list[0]
+        if ss_list:
+            sunset = ss_list[0]
+
+    # Convertir y formatear las horas de amanecer y anochecer
+    def format_time(iso_str: str):
+        try:
+            dt_obj = datetime.fromisoformat(iso_str)
+            return dt_obj.strftime("%H:%M %Z")  # hora + zona horaria
+        except Exception:
+            return iso_str
+
+    sunrise_fmt = format_time(sunrise) if sunrise else None
+    sunset_fmt = format_time(sunset) if sunset else None
+
+    # Métricas principales
+    st.metric("Temperature (°C)", temp_c)
+    st.metric("Temperature (°F)", f"{temp_f:.1f}" if temp_f is not None else "N/A")
     st.metric("Wind (m/s)", cur.get("windspeed"))
-    st.metric("Weather Code", cur.get("weathercode"))
+    st.metric("UV Index (max)", uv if uv is not None else "N/A")
+
+    # Detalles de sol
+    with st.expander("🌅 Sun Info"):
+        if sunrise_fmt and sunset_fmt:
+            st.write(f"**Sunrise:** {sunrise_fmt}")
+            st.write(f"**Sunset:** {sunset_fmt}")
+        else:
+            st.write("No sunrise/sunset data available.")
+
+    # Gráfica de temperatura
     hourly = w.get("hourly", {})
     if hourly:
-        df = pd.DataFrame({"time": pd.to_datetime(hourly.get("time", [])),
-                           "temp_c": hourly.get("temperature_2m", [])})
-        df = df.set_index("time")
+        df = pd.DataFrame({
+            "time": pd.to_datetime(hourly.get("time", [])),
+            "temp_c": hourly.get("temperature_2m", [])
+        }).set_index("time")
         st.line_chart(df)
 
 def section_fx():
-    st.subheader("💱 FX Converter (exchangerate.host)")
+    st.subheader("💱 FX Converter)")
+
+    currencies = get_common_currencies()
+
     c1, c2, c3 = st.columns(3)
     with c1:
-        amt = st.number_input("Amount", value=100.0, min_value=0.0, step=1.0)
+        amount = st.number_input("Amount", min_value=0.0, value=100.0, step=1.0)
     with c2:
-        base = st.text_input("From", value="EUR", max_chars=3)
+        base = st.selectbox("From currency", currencies, index=0)
     with c3:
-        target = st.text_input("To", value="USD", max_chars=3)
+        target = st.selectbox("To currency", currencies, index=1)
+
     if st.button("Convert"):
-        js = fx_convert(amt, base, target)
-        if not js:
-            st.error("Conversion failed.")
-        else:
-            st.success(f"{amt} {base.upper()} = {js['result']:.4f} {target.upper()}")
-    st.markdown("**History (last 7 days)**")
-    end = dt.date.today()
-    start = end - dt.timedelta(days=7)
-    ts = fx_timeseries(base, target, start.isoformat(), end.isoformat())
-    if ts and ts.get("rates"):
-        rates = ts["rates"]
-        dates = sorted(rates.keys())
-        values = [rates[d][target.upper()] for d in dates]
-        df = pd.DataFrame({"date": pd.to_datetime(dates), "rate": values}).set_index("date")
-        st.line_chart(df)
+        js = convert_currency(amount, base, target)
+        if not js["success"]:
+            st.error(f"Conversion failed: {js.get('error', 'Unknown error')}")
+            st.json(js.get("raw", {}))
+            return
+
+        st.success(f"{amount:.2f} {base} = {js['result']:.4f} {target}")
+        if js.get("rate"):
+            st.caption(f"Exchange rate: 1 {base} = {js['rate']:.4f} {target}")
+
+    # Histórico
+    st.markdown("### 📈 Exchange Rate (Last 7 Days)")
+    df = get_timeseries(base, target, days=7)
+    if df is not None and not df.empty:
+        chart = (
+           alt.Chart(df.reset_index())
+           .mark_line(point=True, color="#4B9CD3")
+           .encode(
+               x=alt.X("date:T", title="Date"),
+               y=alt.Y("rate:Q", title=f"Exchange Rate ({base} → {target})", scale=alt.Scale(zero=False)),
+               tooltip=[
+                   alt.Tooltip("date:T", title="Date"),
+                   alt.Tooltip("rate:Q", title=f"Rate ({base}/{target})", format=".4f"),
+               ],
+           )
+           .properties(title="📈 Exchange Rate (Last 7 Days)", width="container", height=300)
+           .interactive()
+          )
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.warning("No historical data available.")
+
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Smart Search", "Wikipedia", "News", "Weather & FX"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Smart Search", "Wikipedia", "News", "Weather", "FX Converter"])
 
 with tab1:
     st.header("🔎 Smart Search (multi-source + summarize)")
@@ -207,5 +276,6 @@ with tab3:
 with tab4:
     city = st.text_input("City:", value="Barcelona")
     section_weather(city)
-    st.markdown("---")
+
+with tab5:
     section_fx()
