@@ -19,7 +19,7 @@ def get_weather(lat: float, lon: float) -> Optional[Dict[str, Any]]:
         "longitude": lon,
         "current_weather": True,
         "hourly": "temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m",
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max,sunrise,sunset",
         "timezone": "auto",
     }
     r = requests.get(BASE, params=params, timeout=15)
