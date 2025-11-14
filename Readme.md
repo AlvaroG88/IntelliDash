@@ -32,15 +32,18 @@
 
 ## 🧩 Architecture Overview
 <p align="center">
-  <img src="Architecture.png" alt="IntelliDash Overview" width="700">
+  <img src="Architecture.PNG" alt="IntelliDash Overview" width="700">
 </p>
 
 ---
 
-## How to run it locally? (Python environment) 
+## How to run it locally? 
 
 ### Create and activate a virtual environment
 ```bash
+
+## How to run it in a Python environment?
+
 1: git clone https://github.com/AlvaroG88/IntelliDash
 2: cd IntelliDash
 3: python -m venv .venv
@@ -66,4 +69,5 @@ To stop the container:
 docker compose down
 
 ---
+
 
