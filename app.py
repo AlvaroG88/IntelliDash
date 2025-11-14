@@ -8,7 +8,7 @@ import altair as alt
 
 from datetime import datetime
 from services.weather import geocode_city, get_weather
-from services.wiki import search_pages, get_summary
+from services.wiki import search_pages, get_summary, infer_entity_type_from_pages
 from services.news import search_hn
 from services.forex import convert_currency, get_timeseries, get_common_currencies
 from intelligence.nlp import rake_keywords, textrank_summarize, tiny_sentiment
@@ -19,10 +19,15 @@ st.title("🧠 IntelliDash — Intelligent Multi-Source Dashboard")
 st.caption("Open-source GUI pulling data from Open-Meteo, Wikipedia, Hacker News and exchangerate.host, with light NLP.")
 
 with st.sidebar:
-    st.header("Smart Search")
-    q = st.text_input("Search a topic / place / ticker / concept", placeholder="e.g., Artificial Intelligence, Barcelona, inflation")
+    st.markdown("## 🔍 Smart Search")
+    with st.form("smart_search_form", clear_on_submit=False):
+        q = st.text_input(
+            "Search",
+            placeholder="Try: Artificial intelligence, Chicago, USD-EUR",
+        )
+        run_all = st.form_submit_button("Run Smart Search 🚀")
+
     st.caption("Runs across news + wiki + (geo) weather + FX, then summarizes.")
-    run_all = st.button("Run Smart Search")
 
     st.markdown("---")
     st.subheader("Settings")
@@ -30,14 +35,25 @@ with st.sidebar:
     max_wiki = st.slider("Max wiki results", 3, 10, 5, step=1)
     max_sum_sent = st.slider("Summary sentences", 1, 6, 3, step=1)
 
+
 def smart_aggregate(query: str, max_news: int, max_wiki: int) -> dict:
-    out = {"news": [], "wiki": [], "weather": None, "fx": None, "geo": None, "errors": []}
+    out = {
+        "news": [],
+        "wiki": [],
+        "weather": None,
+        "fx": None,
+        "geo": None,
+        "errors": [],
+        "query_type": "Abstract"
+     }
     if not query:
         return out
     # Wiki
     try:
         wp = search_pages(query, limit=max_wiki)
         out["wiki"] = wp
+        # NEW: infer if the top page looks like a place/person/etc.
+        out["query_type"] = infer_entity_type_from_pages(wp)
     except Exception as e:
         out["errors"].append(f"wiki: {e}")
     # News
@@ -48,28 +64,41 @@ def smart_aggregate(query: str, max_news: int, max_wiki: int) -> dict:
         out["errors"].append(f"news: {e}")
     # Geo/weather si parece ciudad
     try:
-        g = geocode_city(query)
-        if g:
-            out["geo"] = g
-            w = get_weather(g["latitude"], g["longitude"])
-            out["weather"] = w
+        if out["query_type"] == "place":
+            g = geocode_city(query)
+            if g:
+                out["geo"] = g
+                w = get_weather(g["latitude"], g["longitude"])
+                out["weather"] = w
     except Exception as e:
         out["errors"].append(f"weather: {e}")
-    # FX si parece par de divisas
+    # --- FX: only when query is like "USD-EUR" ---
     try:
-        tokens = query.upper().split()
-        pair = None
-        if len(tokens) == 1 and len(tokens[0]) == 6:
-            pair = (tokens[0][:3], tokens[0][3:])
-        elif "TO" in tokens and len(tokens) >= 3:
-            i = tokens.index("TO")
-            pair = (tokens[i-1], tokens[i+1]) if i-1 >=0 and i+1 < len(tokens) else None
-        if pair:
-            conv = fx_convert(1.0, pair[0], pair[1])
-            if conv:
-                out["fx"] = conv
+        base = target = None
+
+        # Normalize query: strip spaces and uppercase
+        q = query.strip().upper()
+
+        # Expect exactly "XXX-YYY"
+        if "-" in q:
+            parts = [p.strip() for p in q.split("-")]
+            if len(parts) == 2 and all(len(p) == 3 and p.isalpha() for p in parts):
+                base, target = parts
+
+        if base and target:
+            fx_resp = convert_currency(1.0, base, target)
+            # fx_resp is the raw API JSON from exchangerate.host
+            # we only care about the numeric result here
+            if fx_resp and "result" in fx_resp:
+                out["fx"] = {
+                    "base": base,
+                    "target": target,
+                    "result": fx_resp["result"],
+                }
+
     except Exception as e:
         out["errors"].append(f"fx: {e}")
+
     return out
 
 def section_wiki(query: str, max_wiki: int, max_sum_sent: int):
@@ -235,6 +264,8 @@ with tab1:
     st.write("Enter a query in the sidebar and press **Run Smart Search**.")
     if run_all and q:
         res = smart_aggregate(q, max_news, max_wiki)
+        query_type = res.get("query_type", "Abstract")
+        st.caption(f"Detected query type: **{query_type}**")
         if res["errors"]:
             st.warning("Some sources had errors: " + "; ".join(res["errors"]))
         if res["wiki"]:
@@ -254,16 +285,20 @@ with tab1:
                 title = h.get("title") or ""
                 url = h.get("url") or h.get("story_url") or ""
                 st.markdown(f"- {title} — {url}")
-        if res["weather"] and res["geo"]:
+        if res["weather"] and res["geo"] and query_type == "place":
             st.subheader("Weather Snapshot")
             cur = res["weather"].get("current_weather", {})
             st.caption(f"{res['geo'].get('name')}, {res['geo'].get('country_code')}")
             st.metric("Temp (°C)", cur.get("temperature"))
             st.metric("Wind (m/s)", cur.get("windspeed"))
+            st.metric("Wind (m/s)", cur.get("windspeed"))
         if res["fx"]:
             st.subheader("FX 1-unit Conversion")
             info = res["fx"]
-            st.write(f"1 {info['query']['from']} = {info['result']:.4f} {info['query']['to']}")
+            st.write(f"1 {info['base']} = {info['result']:.4f} {info['target']}")
+
+
+
 
 with tab2:
     query = st.text_input("Search Wikipedia:", value="Artificial intelligence")

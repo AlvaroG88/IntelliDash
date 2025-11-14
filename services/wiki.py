@@ -13,36 +13,32 @@ HEADERS = {
 def search_pages(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """Search Wikipedia page titles and return the raw page dicts."""
     try:
-        print(f"[DEBUG] Searching for: {query!r}, limit={limit}")
+
         resp = requests.get(
             SEARCH_URL,
             params={"q": query, "limit": limit},
             headers=HEADERS,
             timeout=10,
         )
-        print(f"[DEBUG] Search URL: {resp.url}")
-        print(f"[DEBUG] Status code: {resp.status_code}")
+
     except requests.RequestException as e:
-        print(f"[ERROR] Request to search endpoint failed: {e}")
+
         return []
 
     if resp.status_code != 200:
-        print("[ERROR] Non-200 response from search endpoint")
-        print(f"[DEBUG] Response text (first 500 chars): {resp.text[:500]!r}")
+
         return []
 
     try:
         data = resp.json()
     except ValueError as e:
-        print(f"[ERROR] Failed to decode JSON: {e}")
-        print(f"[DEBUG] Raw response text (first 500 chars): {resp.text[:500]!r}")
+
         return []
 
-    print(f"[DEBUG] Top-level JSON keys: {list(data.keys())}")
 
     # Different versions of the API might use 'pages' or 'data'
     pages = data.get("pages") or data.get("data") or []
-    print(f"[DEBUG] Number of pages found: {len(pages)}")
+
 
     return pages
 
@@ -52,49 +48,102 @@ def get_summary(title: str) -> Optional[Dict[str, Any]]:
     from urllib.parse import quote
 
     url = BASE_SUMMARY + quote(title)
-    print(f"[DEBUG] Getting summary for title: {title!r}")
-    print(f"[DEBUG] Summary URL: {url}")
+
 
     try:
         resp = requests.get(url, headers=HEADERS, timeout=10)
-        print(f"[DEBUG] Status code: {resp.status_code}")
+
     except requests.RequestException as e:
-        print(f"[ERROR] Request to summary endpoint failed: {e}")
+
         return None
 
     if resp.status_code != 200:
-        print("[ERROR] Non-200 response from summary endpoint")
-        print(f"[DEBUG] Response text (first 500 chars): {resp.text[:500]!r}")
+
         return None
 
     try:
         data = resp.json()
     except ValueError as e:
-        print(f"[ERROR] Failed to decode JSON for summary: {e}")
-        print(f"[DEBUG] Raw response text (first 500 chars): {resp.text[:500]!r}")
+
         return None
 
-    print(f"[DEBUG] Summary JSON keys: {list(data.keys())}")
+    #rint(f"[DEBUG] Summary JSON keys: {list(data.keys())}")
     return data
 
+def _classify_from_summary(summary: Dict[str, Any]) -> str:
+    """
+    Decide if the summary describes a place, a person, or something else.
+    Returns: 'place' | 'person' | 'unknown'
+    """
+    # Use both the short description and the longer extract
+    text = (
+        (summary.get("description") or "") + " " +
+        (summary.get("extract") or "")
+    ).lower()
 
-if __name__ == "__main__":
-    # Example debug run
-    query = "Python"
-    pages = search_pages(query, limit=3)
+    # Heuristics for places
+    place_keywords = [
+        "city", "town", "village", "country", "region", "province", "state",
+        "county", "district", "island", "mountain", "river", "lake", "park",
+        "municipality", "suburb", "neighborhood", "capital", "airport",
+        "railway station", "metro station",
+    ]
+    if any(kw in text for kw in place_keywords):
+        return "place"
 
+    # Heuristics for people / names / surnames
+    person_keywords = [
+        "surname", "family name", "given name", "person", "footballer",
+        "politician", "actor", "actress", "singer", "musician", "writer",
+        "novelist", "poet", "scientist", "physicist", "mathematician",
+        "chemist", "engineer", "entrepreneur", "businessman", "businesswoman",
+        "model", "director", "born ",
+    ]
+    if any(kw in text for kw in person_keywords):
+        return "person"
+
+    return "unknown"
+
+
+def infer_entity_type_from_pages(pages: List[Dict[str, Any]]) -> str:
+    """
+    Given the Wikipedia search results, infer what the query most likely is:
+    'place', 'person', or 'unknown'.
+    We look at the first result's summary.
+    """
     if not pages:
-        print("[INFO] No pages returned from search.")
-    else:
-        for idx, p in enumerate(pages, start=1):
-            title = p.get("title") or p.get("key") or "<no-title>"
-            print(f"\n=== Result {idx} ===")
-            print(f"Title: {title}")
+        return "unknown"
 
-            summary = get_summary(title)
-            if summary is None:
-                print("[INFO] No summary returned.")
-            else:
-                extract = summary.get("extract") or ""
-                print(f"Summary (first 200 chars): {extract[:200]!r}")
-    
+    title = pages[0].get("title") or pages[0].get("key") or ""
+    if not title:
+        return "unknown"
+
+    try:
+        summary = get_summary(title)
+    except Exception:
+        return "unknown"
+
+    if not summary:
+        return "unknown"
+
+    return _classify_from_summary(summary)
+
+# if __name__ == "__main__":
+#     # Example debug run
+#     query = "Python"
+#     pages = search_pages(query, limit=3)
+
+#     if not pages:
+#         print("[INFO] No pages returned from search.")
+#     else:
+#         for idx, p in enumerate(pages, start=1):
+#             title = p.get("title") or p.get("key") or "<no-title>"
+#             print(f"\n=== Result {idx} ===")
+#             print(f"Title: {title}")
+
+#             summary = get_summary(title)
+#             if summary is None:
+#                 print("[INFO] No summary returned.")
+#             else:
+#                 extract = summary.get("extract") or ""
+#                 print(f"Summary (first 200 chars): {extract[:200]!r}")
