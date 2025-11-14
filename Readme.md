@@ -30,7 +30,7 @@
 
 ---
 
-## 🧩 Architecture Overview
+## Architecture Overview
 <p align="center">
   <img src="Architecture.PNG" alt="IntelliDash Overview" width="700">
 </p>
@@ -69,5 +69,6 @@ To stop the container:
 docker compose down
 
 ---
+
 
 
