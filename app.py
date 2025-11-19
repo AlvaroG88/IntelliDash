@@ -15,6 +15,10 @@ from intelligence.nlp import rake_keywords, textrank_summarize, tiny_sentiment
 
 st.set_page_config(page_title="IntelliDash", page_icon="🧠", layout="wide")
 
+# --- Analytics storage in session state (for CSV download) ---
+if "analytics_rows" not in st.session_state:
+    st.session_state["analytics_rows"] = []
+
 st.title("🧠 IntelliDash — Intelligent Multi-Source Dashboard")
 st.caption("Open-source GUI pulling data from Open-Meteo, Wikipedia, Hacker News and exchangerate.host, with light NLP.")
 
@@ -77,11 +81,11 @@ def smart_aggregate(query: str, max_news: int, max_wiki: int) -> dict:
         base = target = None
 
         # Normalize query: strip spaces and uppercase
-        q = query.strip().upper()
+        q_norm = query.strip().upper()
 
         # Expect exactly "XXX-YYY"
-        if "-" in q:
-            parts = [p.strip() for p in q.split("-")]
+        if "-" in q_norm:
+            parts = [p.strip() for p in q_norm.split("-")]
             if len(parts) == 2 and all(len(p) == 3 and p.isalpha() for p in parts):
                 base, target = parts
 
@@ -100,6 +104,57 @@ def smart_aggregate(query: str, max_news: int, max_wiki: int) -> dict:
         out["errors"].append(f"fx: {e}")
 
     return out
+
+
+# --- NEW: helper to log analytics rows for CSV download ---
+def add_analytics_row(raw_query: str, res: dict) -> None:
+    """
+    Take the aggregated smart search result and store a flat row
+    that can later be downloaded as CSV.
+    Focused on city ('place') queries where we have geo + weather.
+    """
+    query_type = res.get("query_type", "Abstract")
+    geo = res.get("geo")
+    weather = res.get("weather")
+    wiki_pages = res.get("wiki") or []
+    news_hits = res.get("news") or []
+
+    # Only log rows when we have a place + weather information
+    if query_type != "place" or not geo or not weather:
+        return
+
+    cur = weather.get("current_weather", {}) or {}
+
+    # Top wiki page (if any)
+    top_wiki = wiki_pages[0] if wiki_pages else {}
+    wiki_title = top_wiki.get("title")
+
+    # Simple average sentiment of news titles
+    sentiments = []
+    for h in news_hits:
+        title = h.get("title") or ""
+        if title:
+            sentiments.append(tiny_sentiment(title))
+    avg_sentiment = float(np.mean(sentiments)) if sentiments else None
+
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "query": raw_query,
+        "query_type": query_type,
+        "place_name": geo.get("name"),
+        "country": geo.get("country_code"),
+        "latitude": geo.get("latitude"),
+        "longitude": geo.get("longitude"),
+        "temperature_c": cur.get("temperature"),
+        "windspeed_ms": cur.get("windspeed"),
+        "weather_code": cur.get("weathercode"),
+        "wiki_title": wiki_title,
+        "news_count": len(news_hits),
+        "avg_news_sentiment": avg_sentiment,
+    }
+
+    st.session_state["analytics_rows"].append(row)
+
 
 def section_wiki(query: str, max_wiki: int, max_sum_sent: int):
     st.subheader("📚 Wikipedia")
@@ -126,6 +181,7 @@ def section_wiki(query: str, max_wiki: int, max_sum_sent: int):
                     sum_sents = textrank_summarize(extract, max_sentences=max_sum_sent)
                     st.write(" ".join(sum_sents))
 
+
 def section_news(query: str, max_news: int):
     st.subheader("🗞️ Hacker News (Algolia)")
     hits = search_hn(query, hits_per_page=max_news)
@@ -140,6 +196,7 @@ def section_news(query: str, max_news: int):
         if title:
             s = tiny_sentiment(title)
             st.caption(f"Sentiment score: {s:+.2f}")
+
 
 def section_weather(query: str):
     st.subheader("⛅ Weather (Open-Meteo)")
@@ -208,6 +265,7 @@ def section_weather(query: str):
             "temp_c": hourly.get("temperature_2m", [])
         }).set_index("time")
         st.line_chart(df)
+
 
 def section_fx():
     st.subheader("💱 FX Converter)")
@@ -291,14 +349,37 @@ with tab1:
             st.caption(f"{res['geo'].get('name')}, {res['geo'].get('country_code')}")
             st.metric("Temp (°C)", cur.get("temperature"))
             st.metric("Wind (m/s)", cur.get("windspeed"))
-            st.metric("Wind (m/s)", cur.get("windspeed"))
         if res["fx"]:
             st.subheader("FX 1-unit Conversion")
             info = res["fx"]
             st.write(f"1 {info['base']} = {info['result']:.4f} {info['target']}")
 
+        # --- NEW: log this query into analytics + confirm to user ---
+        add_analytics_row(q, res)
+        st.success("This query has been added to the analytics dataset (see table & CSV download below).")
 
+    # --- NEW: table + CSV download for analytics ---
+    st.markdown("### 📊 Collected data for analytics")
 
+    if st.session_state["analytics_rows"]:
+        analytics_df = pd.DataFrame(st.session_state["analytics_rows"])
+        st.dataframe(analytics_df, use_container_width=True)
+
+        csv_bytes = analytics_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download analytics as CSV",
+            data=csv_bytes,
+            file_name="intellidash_analytics.csv",
+            mime="text/csv",
+            key="download_analytics_csv",
+        )
+
+        st.caption(
+            "You can open this CSV in Excel/Google Sheets to build graphs, "
+            "compare cities (temperature vs. city, sentiment vs. city, etc.)."
+        )
+    else:
+        st.info("Run Smart Search on a few cities (place queries) to start building the analytics dataset.")
 
 with tab2:
     query = st.text_input("Search Wikipedia:", value="Artificial intelligence")
@@ -314,3 +395,4 @@ with tab4:
 
 with tab5:
     section_fx()
+
