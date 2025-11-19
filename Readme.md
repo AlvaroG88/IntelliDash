@@ -69,6 +69,28 @@ To stop the container:
 docker compose down
 
 ---
+## How to run tests?
+1: pip install -r requirements-dev.txt
+2: pytest tests/
+
+## Testing
+The project has a suite of tests to ensure the quality of the code. The tests are located in the `tests/` directory and are split into two files:
+### `tests/test_nlp.py`
+This file tests the Natural Language Processing functions in `intelligence/nlp.py`. It includes tests for:
+- `tokenize`: Checks if the function correctly tokenizes a string.
+- `sentences`: Checks if the function correctly splits a text into sentences.
+- `rake_keywords`: Checks if the RAKE algorithm correctly extracts keywords.
+- `textrank_summarize`: Checks if the TextRank algorithm correctly summarizes a text.
+- `tiny_sentiment`: Checks if the sentiment analysis function correctly identifies positive, negative, and neutral sentiments.
+### `tests/test_services.py`
+This file tests the external service integrations in the `services/` directory. It uses `pytest-mock` to mock API calls and test the following functions:
+- `forex.convert_currency`: Tests successful and failing currency conversions.
+- `news.search_hn`: Tests successful and failing Hacker News searches.
+- `weather.geocode_city`: Tests successful and failing city geocoding.
+- `weather.get_weather`: Tests successful and failing weather data retrieval.
+- `wiki.search_pages`: Tests successful and failing Wikipedia page searches.
+- `wiki.get_summary`: Tests successful and failing Wikipedia summary retrieval.
+---
 
 
 
