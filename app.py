@@ -106,54 +106,121 @@ def smart_aggregate(query: str, max_news: int, max_wiki: int) -> dict:
     return out
 
 
+import time
+from urllib.parse import urlparse
+
+# ... (imports)
+
 # --- NEW: helper to log analytics rows for CSV download ---
 def add_analytics_row(raw_query: str, res: dict) -> None:
     """
     Take the aggregated smart search result and store a flat row
     that can later be downloaded as CSV.
-    Focused on city ('place') queries where we have geo + weather.
+    Now logs ALL queries, with extra fields for weather, news, wiki, etc.
     """
     query_type = res.get("query_type", "Abstract")
     geo = res.get("geo")
     weather = res.get("weather")
     wiki_pages = res.get("wiki") or []
     news_hits = res.get("news") or []
+    
+    # Execution time (injected into res by the caller)
+    exec_time = res.get("execution_time", 0.0)
 
-    # Only log rows when we have a place + weather information
-    if query_type != "place" or not geo or not weather:
-        return
+    # Weather details
+    cur = {}
+    daily = {}
+    if weather:
+        cur = weather.get("current_weather", {}) or {}
+        daily = weather.get("daily", {}) or {}
 
-    cur = weather.get("current_weather", {}) or {}
+    # Extract daily metrics (arrays -> single value)
+    def get_daily_val(key):
+        vals = daily.get(key)
+        return vals[0] if vals else None
 
-    # Top wiki page (if any)
+    # Top wiki page
     top_wiki = wiki_pages[0] if wiki_pages else {}
     wiki_title = top_wiki.get("title")
+    # Wiki summary length (from the summary extract we might have fetched, 
+    # but 'res' only has the search results list usually. 
+    # The actual summary text is fetched in 'section_wiki' or 'smart_aggregate' logic?
+    # Wait, smart_aggregate only calls search_pages. It doesn't fetch summaries.
+    # The UI fetches summaries. We can only log what's in 'res' or 'top_wiki'.
+    # 'search_pages' returns {title, ...}. It doesn't have the full text.
+    # We'll skip summary length for now unless we fetch it here, which might be slow.
+    # Let's just log the title length as a proxy or skip it. 
+    # Actually, let's stick to what we have efficiently.
+    
+    # News metrics
+    total_points = sum(h.get("points", 0) or 0 for h in news_hits)
+    total_comments = sum(h.get("num_comments", 0) or 0 for h in news_hits)
+    
+    # Unique sources
+    domains = set()
+    for h in news_hits:
+        u = h.get("url") or h.get("story_url")
+        if u:
+            try:
+                domains.add(urlparse(u).netloc)
+            except:
+                pass
+    news_sources_count = len(domains)
 
-    # Simple average sentiment of news titles
+    # Sentiment
     sentiments = []
+    pos_count = 0
+    neg_count = 0
     for h in news_hits:
         title = h.get("title") or ""
         if title:
-            sentiments.append(tiny_sentiment(title))
+            s = tiny_sentiment(title)
+            sentiments.append(s)
+            if s > 0:
+                pos_count += 1
+            elif s < 0:
+                neg_count += 1
     avg_sentiment = float(np.mean(sentiments)) if sentiments else None
 
     row = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "query": raw_query,
         "query_type": query_type,
-        "place_name": geo.get("name"),
-        "country": geo.get("country_code"),
-        "latitude": geo.get("latitude"),
-        "longitude": geo.get("longitude"),
+        "execution_time_sec": round(exec_time, 4),
+        
+        # Geo
+        "place_name": geo.get("name") if geo else None,
+        "country": geo.get("country_code") if geo else None,
+        "latitude": geo.get("latitude") if geo else None,
+        "longitude": geo.get("longitude") if geo else None,
+        
+        # Weather
         "temperature_c": cur.get("temperature"),
         "windspeed_ms": cur.get("windspeed"),
+        "wind_direction": cur.get("winddirection"),
+        "is_day": cur.get("is_day"),
         "weather_code": cur.get("weathercode"),
+        "daily_max_temp": get_daily_val("temperature_2m_max"),
+        "daily_min_temp": get_daily_val("temperature_2m_min"),
+        "daily_precip_sum": get_daily_val("precipitation_sum"),
+        "daily_uv_index": get_daily_val("uv_index_max"),
+
+        # Wiki
         "wiki_title": wiki_title,
+        
+        # News
         "news_count": len(news_hits),
         "avg_news_sentiment": avg_sentiment,
+        "positive_news_count": pos_count,
+        "negative_news_count": neg_count,
+        "total_news_points": total_points,
+        "total_news_comments": total_comments,
+        "news_sources_count": news_sources_count,
     }
 
     st.session_state["analytics_rows"].append(row)
+
+
 
 
 def section_wiki(query: str, max_wiki: int, max_sum_sent: int):
@@ -321,7 +388,11 @@ with tab1:
     st.header("🔎 Smart Search (multi-source + summarize)")
     st.write("Enter a query in the sidebar and press **Run Smart Search**.")
     if run_all and q:
+        t0 = time.time()
         res = smart_aggregate(q, max_news, max_wiki)
+        t1 = time.time()
+        res["execution_time"] = t1 - t0
+        
         query_type = res.get("query_type", "Abstract")
         st.caption(f"Detected query type: **{query_type}**")
         if res["errors"]:

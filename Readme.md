@@ -28,6 +28,37 @@
 - Summarization (TextRank)
 - Heuristic sentiment analysis
 
+### Analytics & Logging
+IntelliDash logs every query to a session-state dataset, which can be downloaded as a CSV. This dataset is useful for analyzing user behavior, performance, and data trends.
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `timestamp` | String (ISO) | Exact time of the query. |
+| `query` | String | The raw search text entered by the user. |
+| `query_type` | String | Detected intent (e.g., `place`, `person`, `Abstract`). |
+| `execution_time_sec` | Float | Time taken to aggregate all sources. |
+| `place_name` | String | Resolved city name (if query is a place). |
+| `country` | String | Country code of the resolved place. |
+| `latitude` | Float | Latitude of the resolved place. |
+| `longitude` | Float | Longitude of the resolved place. |
+| `temperature_c` | Float | Current temperature in Celsius. |
+| `windspeed_ms` | Float | Current wind speed in m/s. |
+| `wind_direction` | Integer | Wind direction in degrees. |
+| `is_day` | Integer | `1` if day, `0` if night. |
+| `weather_code` | Integer | WMO weather code. |
+| `daily_max_temp` | Float | Max daily temperature (°C). |
+| `daily_min_temp` | Float | Min daily temperature (°C). |
+| `daily_precip_sum` | Float | Total daily precipitation (mm). |
+| `daily_uv_index` | Float | Max daily UV index. |
+| `wiki_title` | String | Title of the top Wikipedia result. |
+| `news_count` | Integer | Number of news stories found. |
+| `avg_news_sentiment` | Float | Average sentiment score of news titles. |
+| `positive_news_count` | Integer | Count of news stories with positive sentiment (>0). |
+| `negative_news_count` | Integer | Count of news stories with negative sentiment (<0). |
+| `total_news_points` | Integer | Sum of upvotes on Hacker News stories. |
+| `total_news_comments` | Integer | Sum of comments on Hacker News stories. |
+| `news_sources_count` | Integer | Count of unique domains in news results. |
+
 ---
 
 ## Architecture Overview

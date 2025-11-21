@@ -78,12 +78,70 @@ def textrank_summarize(text: str, max_sentences: int = 3):
     return [sents[i] for i in selected]
 
 def tiny_sentiment(text: str) -> float:
-    pos = set("good great excellent positive benefit win success safe fast easy love like improvement growth bullish sunny clear".split())
-    neg = set("bad poor terrible negative loss fail risk slow hard hate dislike issue decline bearish storm rainy cloudy".split())
+    """
+    Heuristic sentiment analysis with an expanded lexicon and basic negation handling.
+    Returns a score between -1.0 (negative) and 1.0 (positive).
+    """
+    # Expanded lexicon
+    pos_words = {
+        "good", "great", "excellent", "positive", "benefit", "win", "success", "safe", "fast", "easy", "love", "like", 
+        "improvement", "growth", "bullish", "sunny", "clear", "best", "amazing", "awesome", "nice", "cool", "happy", 
+        "joy", "gain", "profit", "up", "boom", "strong", "rich", "fresh", "clean", "bright", "smooth", "smart", "wise", 
+        "pure", "free", "top", "hot", "hit", "pro", "plus", "award", "star", "hero", "secure", "stable", "trust", 
+        "faith", "hope", "luck", "peace", "calm", "simple", "quick", "swift", "agile", "fit", "bold", "brave", "kind", 
+        "sweet", "fun", "funny", "humor", "laugh", "smile", "grin", "joke", "wit", "art", "beauty", "soul", "mind", 
+        "heart", "spirit", "life", "live", "born", "grow", "heal", "cure", "fix", "solve", "save", "help", "aid", 
+        "support", "gift", "prize", "bonus", "deal", "cheap", "gold", "gem", "jewel", "pearl", "silk", "soft", "warm", 
+        "shine", "light", "sun", "sky", "moon", "sea", "beach", "ocean", "river", "hill", "mountain", "peak", "high", 
+        "rise", "fly", "soar", "wing", "bird", "friend", "pal", "mate", "buddy", "family", "home", "house", "health", 
+        "gym", "run", "walk", "play", "game", "sport", "glad", "merry", "jolly", "fortune", "chance", "destiny", 
+        "truth", "fact", "real", "true", "right", "just", "fair", "goal", "aim", "target", "value", "worth", "innovative",
+        "breakthrough", "revolutionary", "upgrade", "new", "launch", "release", "announce", "reveal", "unveil"
+    }
+    
+    neg_words = {
+        "bad", "poor", "terrible", "negative", "loss", "fail", "risk", "slow", "hard", "hate", "dislike", "issue", 
+        "decline", "bearish", "storm", "rainy", "cloudy", "worst", "awful", "horrible", "nasty", "ugly", "sad", 
+        "unhappy", "grief", "pain", "hurt", "harm", "kill", "die", "dead", "death", "sick", "ill", "disease", "virus", 
+        "flu", "cold", "fever", "cough", "ache", "wound", "cut", "break", "broke", "broken", "smash", "crash", "burn", 
+        "fire", "hell", "demon", "devil", "evil", "sin", "crime", "jail", "prison", "war", "fight", "battle", "murder", 
+        "rob", "steal", "lie", "cheat", "fake", "false", "wrong", "error", "fault", "bug", "defect", "flaw", "weak", 
+        "dull", "dark", "dim", "gloom", "shade", "shadow", "cloud", "rain", "snow", "ice", "waste", "junk", "scrap", 
+        "rot", "decay", "poison", "toxic", "acid", "sour", "bitter", "tear", "cry", "scream", "yell", "shout", "anger", 
+        "rage", "fear", "dread", "panic", "scare", "terror", "horror", "ghost", "monster", "beast", "enemy", "foe", 
+        "rival", "opponent", "disgust", "shame", "guilt", "vice", "mistake", "debt", "cost", "price", "pay", "bill", 
+        "tax", "fine", "fee", "penalty", "lock", "ban", "stop", "end", "quit", "leave", "go", "away", "off", "down", 
+        "fall", "drop", "sink", "low", "bottom", "under", "below", "less", "minus", "lose", "lost", "miss", "crisis",
+        "crash", "collapse", "recession", "depression", "inflation", "shortage", "outage", "leak", "hack", "breach",
+        "scam", "fraud", "lawsuit", "sue", "court", "trial", "judge", "jury", "verdict", "guilty", "charge", "arrest"
+    }
+
+    negations = {"not", "no", "never", "neither", "nor", "none", "nobody", "nowhere", "nothing", "hardly", "scarcely", "barely", "doesn't", "isn't", "wasn't", "shouldn't", "wouldn't", "couldn't", "won't", "can't", "don't"}
+
     toks = tokenize(text)
     if not toks: return 0.0
-    score = 0
-    for t in toks:
-        if t in pos: score += 1
-        if t in neg: score -= 1
-    return max(-1.0, min(1.0, score / max(1, len(toks)//8)))
+    
+    score = 0.0
+    # Look at words in context of previous word for negation
+    for i, t in enumerate(toks):
+        val = 0
+        if t in pos_words:
+            val = 1
+        elif t in neg_words:
+            val = -1
+            
+        # Check negation
+        if i > 0 and toks[i-1] in negations:
+            val *= -1
+            
+        score += val
+
+    # Normalize: divide by a factor related to length, but dampen it so short sentences can have high impact
+    # Using sqrt(len) helps balance short vs long texts better than linear division
+    norm_factor = math.sqrt(len(toks))
+    if norm_factor < 1: norm_factor = 1
+    
+    final_score = score / norm_factor
+    
+    # Clamp between -1 and 1
+    return max(-1.0, min(1.0, final_score))
