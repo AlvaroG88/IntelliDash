@@ -28,6 +28,37 @@
 - Summarization (TextRank)
 - Heuristic sentiment analysis
 
+### Analytics & Logging
+IntelliDash logs every query to a session-state dataset, which can be downloaded as a CSV. This dataset is useful for analyzing user behavior, performance, and data trends.
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `timestamp` | String (ISO) | Exact time of the query. |
+| `query` | String | The raw search text entered by the user. |
+| `query_type` | String | Detected intent (e.g., `place`, `person`, `Abstract`). |
+| `execution_time_sec` | Float | Time taken to aggregate all sources. |
+| `place_name` | String | Resolved city name (if query is a place). |
+| `country` | String | Country code of the resolved place. |
+| `latitude` | Float | Latitude of the resolved place. |
+| `longitude` | Float | Longitude of the resolved place. |
+| `temperature_c` | Float | Current temperature in Celsius. |
+| `windspeed_ms` | Float | Current wind speed in m/s. |
+| `wind_direction` | Integer | Wind direction in degrees. |
+| `is_day` | Integer | `1` if day, `0` if night. |
+| `weather_code` | Integer | WMO weather code. |
+| `daily_max_temp` | Float | Max daily temperature (°C). |
+| `daily_min_temp` | Float | Min daily temperature (°C). |
+| `daily_precip_sum` | Float | Total daily precipitation (mm). |
+| `daily_uv_index` | Float | Max daily UV index. |
+| `wiki_title` | String | Title of the top Wikipedia result. |
+| `news_count` | Integer | Number of news stories found. |
+| `avg_news_sentiment` | Float | Average sentiment score of news titles. |
+| `positive_news_count` | Integer | Count of news stories with positive sentiment (>0). |
+| `negative_news_count` | Integer | Count of news stories with negative sentiment (<0). |
+| `total_news_points` | Integer | Sum of upvotes on Hacker News stories. |
+| `total_news_comments` | Integer | Sum of comments on Hacker News stories. |
+| `news_sources_count` | Integer | Count of unique domains in news results. |
+
 ---
 
 ## Architecture Overview
@@ -68,28 +99,6 @@ Then open http://localhost:8501 in your browser.
 To stop the container:
 docker compose down
 
----
-## How to run tests?
-1: pip install -r requirements-dev.txt
-2: pytest tests/
-
-## Testing
-The project has a suite of tests to ensure the quality of the code. The tests are located in the `tests/` directory and are split into two files:
-### `tests/test_nlp.py`
-This file tests the Natural Language Processing functions in `intelligence/nlp.py`. It includes tests for:
-- `tokenize`: Checks if the function correctly tokenizes a string.
-- `sentences`: Checks if the function correctly splits a text into sentences.
-- `rake_keywords`: Checks if the RAKE algorithm correctly extracts keywords.
-- `textrank_summarize`: Checks if the TextRank algorithm correctly summarizes a text.
-- `tiny_sentiment`: Checks if the sentiment analysis function correctly identifies positive, negative, and neutral sentiments.
-### `tests/test_services.py`
-This file tests the external service integrations in the `services/` directory. It uses `pytest-mock` to mock API calls and test the following functions:
-- `forex.convert_currency`: Tests successful and failing currency conversions.
-- `news.search_hn`: Tests successful and failing Hacker News searches.
-- `weather.geocode_city`: Tests successful and failing city geocoding.
-- `weather.get_weather`: Tests successful and failing weather data retrieval.
-- `wiki.search_pages`: Tests successful and failing Wikipedia page searches.
-- `wiki.get_summary`: Tests successful and failing Wikipedia summary retrieval.
 ---
 
 
